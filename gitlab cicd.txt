@@ -1,0 +1,341 @@
+stages:
+    - build 
+    - test 
+build website:
+    image: node:18-alpine
+    stage: build
+    script:
+        - yarn install
+        - yarn build
+        - echo "index.html"
+
+    artifacts:
+      paths: 
+          - build
+      
+test website: 
+    image: alpine
+    stage: test
+    script: 
+        - test -f build/index.html
+
+unit test:
+    image: node:18-alpine
+    stage: test
+    script:
+        - yarn install
+        - yarn test
+    
+*************************************************************************
+**************************************************************************
+**********************************************************************
+
+stages:
+    - .pre
+    - build 
+    - test 
+build website:
+    image: node:18-alpine
+    stage: build
+    script:
+        - yarn install
+        - yarn build
+        - echo "index.html"
+
+    artifacts:
+      paths: 
+          - build
+
+linter: 
+    image: node:18-alpine
+    stage: .pre
+    script: 
+        - yarn install
+        - yarn lint
+      
+test website: 
+    image: alpine
+    stage: test
+    script: 
+        - test -f build/index.html
+
+unit test:
+    image: node:18-alpine
+    stage: .pre
+    script:
+        - yarn install
+        - yarn test
+    
+***********************************************************************************
+*********************STARTING A SERVER*********************************************
+***********************************************************************************
+
+test website: 
+    image: node:18-alpine
+    stage: test
+    script: 
+        - yarn global add serve
+        - apk add curl
+        - serve -s build &
+        - sleep 10
+        - curl http://localhost:3000 | grep "React App"
+
+************************************************************************************
+*************REMOVE LINT AND UNIT TEST AND INCLUDE THEM IN BUILD********************
+************************************************************************************
+stages:
+    - build 
+    - test 
+build website:
+    image: node:18-alpine
+    stage: build
+    script:
+        - yarn install
+        - yarn lint
+        - yarn test
+        - yarn build
+
+    artifacts:
+      paths: 
+          - build
+      
+
+test website: 
+    image: node:18-alpine
+    stage: test
+    script: 
+        - yarn global add serve
+        - apk add curl
+        - serve -s build &
+        - sleep 10
+        - curl http://localhost:3000 | grep "React App"
+
+
+************************************************************************************
+********************DEPLOT TO S3****************************************************
+************************************************************************************
+deploy to s3:
+    stage: deploy
+    image: 
+        name: amazon/aws-cli:2.13.17
+        entrypoint: [""]
+    script: 
+            - aws --version
+            - echo "Hello s3" > test.txt
+            - aws s3 cp test.txt s3://frank-20230912/test.txt
+             OR
+	    - aws s3 cp test.txt s3://$AWS_S3_BUCKET/test.txt
+
+
+#################################
+Create IAM account
+Provide access key and secrey keys
+Place them on the variables
+Copy you s3 bucket and place it the variables
+Also provide you region on the variables
+
+
+
+*************************************************************************************
+******************UPLOADING MULTIPLE FILES TO S3**********************************&&
+*************************************************************************************
+deploy to s3:
+    stage: deploy
+    image: 
+        name: amazon/aws-cli:2.13.17
+        entrypoint: [""]
+    script: 
+            - aws --version
+            - echo "Hello s3" > test.txt
+            - aws s3 sync build s3://$AWS_S3_BUCKET --delete
+
+##############################
+We use sync
+Recursively copies new and updated files from the source directory to the destination. Only creates folders in the destination if they contain one or more files.
+
+
+HIS ACTUALLY HAS HOSTED OUR WEBSITE TO THE AWS. A very important step
+
+
+**************************************************************************************
+******************CONTROLLING WHEN JOBS RUN*********SETTING RULES**********************************
+**************************************************************************************
+deploy to s3:
+    stage: deploy
+    image: 
+        name: amazon/aws-cli:2.13.17
+        entrypoint: [""]
+    rules:
+        - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+    script: 
+            - aws --version
+            - echo "Hello s3" > test.txt
+            - aws s3 sync build s3://$AWS_S3_BUCKET --delete
+
+
+
+********************************************************************************************
+********************POST DEPLOYMENT TESTING*************************************************
+***************************************************************************************8*****
+production tests:
+    stage: post deploy
+    image: curlimages/curl
+    rules:
+        - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+    script: 
+        -  curl $APP_BASE_URL | grep "React App"
+
+***********************************************************************************************
+***********************ONE PIPELINE WITH TWO AWS S3 BUCKETS IN IT*****************************
+**********************CONTAINS BOTH STAGING AND PRODUCTION STAGES*****************************
+stages:
+    - build 
+    - test 
+    - deploy staging
+    - test staging
+    - deploy production
+    - test production
+
+variables:
+    APP_BASE_URL: http://frank-20230912.s3-website-us-east-1.amazonaws.com
+    APP_BASE_URL_STAGING: http://frank-09132023.s3-website-us-east-1.amazonaws.com
+
+
+build website:
+    image: node:18-alpine
+    stage: build
+    script:
+        - yarn install
+        - yarn lint
+        - yarn test
+        - yarn build
+
+    artifacts:
+      paths: 
+          - build
+          
+test website: 
+    image: node:18-alpine
+    stage: test
+    script: 
+        - yarn global add serve
+        - apk add curl
+        - serve -s build &
+        - sleep 10
+        - curl http://localhost:3000 | grep "React App"
+        
+deploy to staging:
+    stage: deploy staging
+    image: 
+        name: amazon/aws-cli:2.13.17
+        entrypoint: [""]
+    rules:
+        - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+        
+    script: 
+            - aws --version
+            - echo "Hello s3" > test.txt
+            - aws s3 sync build s3://$AWS_S3_BUCKET_STAGING --delete
+            
+staging tests:
+    stage: test staging
+    image: curlimages/curl
+    rules:
+        - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+    script: 
+        -  curl $APP_BASE_URL_STAGING | grep "React App"
+
+
+
+deploy production:
+    stage: deploy production
+    image: 
+        name: amazon/aws-cli:2.13.17
+        entrypoint: [""]
+    rules:
+        - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+        
+    script: 
+            - aws --version
+            - echo "Hello s3" > test.txt
+            - aws s3 sync build s3://$AWS_S3_BUCKET --delete
+            
+production tests:
+    stage: test production
+    image: curlimages/curl
+    rules:
+        - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+    script: 
+        -  curl $APP_BASE_URL | grep "React App"
+
+
+****************************************************************************************
+********************INCLUDING ENVIRONMENTS TO PIPELINE*********************************
+****************************************************************************************
+stages:
+    - build 
+    - test 
+    - deploy staging
+    - deploy production
+
+
+build website:
+    image: node:18-alpine
+    stage: build
+    script:
+        - yarn install
+        - yarn lint
+        - yarn test
+        - yarn build
+
+    artifacts:
+      paths: 
+          - build
+          
+test website: 
+    image: node:18-alpine
+    stage: test
+    script: 
+        - yarn global add serve
+        - apk add curl
+        - serve -s build &
+        - sleep 10
+        - curl http://localhost:3000 | grep "React App"
+        
+deploy to staging:
+    stage: deploy staging
+    environment: staging
+    image: 
+        name: amazon/aws-cli:2.13.17
+        entrypoint: [""]
+    rules:
+        - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+        
+
+    script: 
+            - aws --version
+            - echo "Hello s3" > test.txt
+            - aws s3 sync build s3://$AWS_S3_BUCKET_STAGING --delete
+            - curl $CI_ENVIRONMENT_URL | grep "React App"
+            
+
+
+
+deploy production:
+    stage: deploy production
+    environment: production
+    image: 
+        name: amazon/aws-cli:2.13.17
+        entrypoint: [""]
+    rules:
+        - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+        
+    script: 
+            - aws --version
+            - echo "Hello s3" > test.txt
+            - aws s3 sync build s3://$AWS_S3_BUCKET --delete
+            - curl $CI_ENVIRONMENT_URL | grep "React App"
+         
+         
+
+
